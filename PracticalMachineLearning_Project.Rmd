@@ -1,0 +1,161 @@
+---
+title: "Prediction of dumbbell lift classifications"
+author: "Joe Cuthbert"
+output:
+  html_document:
+    pandoc_args: [
+      "+RTS", "-K64m",
+      "-RTS"
+    ]
+---
+## Introduction
+
+The purpose of the assignment was to build a prediction model that could determine how a dumbbell lift was performed based on data collected from 4 technology monitors.
+
+The dumbbell lifts were performed by 6 different participants in 5 ways. The classe variable in the data set stored the way in which the lift was performed with classe A being the correct way and classes B to E being different and incorrect ways.
+
+The error rate was defined as the percentage of incorrect predictions.
+
+Cross validation was used to estimate the out of sample error rate.
+
+The required libraries and data were loaded.
+
+```{r cache=TRUE, message=FALSE, warning=FALSE}
+library(caret)
+importRawData <- read.csv("Data\\pml-training.csv")
+importRawTest <- read.csv("Data\\pml-testing.csv")
+```
+
+## Choosing the predictors
+
+Since the lifts were performed in a particular order by each of the participants, there was a relationship between the incremental IDs of the data measurements and classe, but this relationship would not exist in the test data and therefore this variable was excluded from the prediction model as it would have resulted in an overfit of the model to the training data. For similar reasons the window id was not included in the model either.
+
+The first timestamp was excluded as the type of class of lift should not be related to when the lift happened. 
+
+The second timestamp could potentially have been included as, in combination with the total amount of time of the lift, it could have  provided details of how far through the lift the participant was when the measurement was taken. However, since the total time of the lift did not appear to be readily available for all windows in the data set we also excluded the second timestamp from our model.
+
+We wanted to predict based on data collected during the lift repetition and therefore we removed the variables that collected data only at the end of a lift. These were the variables that included data for the rows with a yes in the window variable.
+
+Even though different participants may have performed the same lifts in slightly different ways, it was the general pattern in the data we were looking for since the ultimate aim of the research was to predict regardless of which participant performs the lift. Therefore we did not include the variable user in our model.
+
+To get an overall impression of the lift we included variables from each of the 4 sensors.
+
+The remaining variables were loaded into a dataset named cleanedData1. 
+
+```{r cache=TRUE, echo=FALSE}
+cleanedData1 <- importRawData[,c("classe","roll_belt","pitch_belt","yaw_belt","total_accel_belt","gyros_belt_x","gyros_belt_y","gyros_belt_z","accel_belt_x","accel_belt_y","accel_belt_z","magnet_belt_x","magnet_belt_y","magnet_belt_z","roll_arm","pitch_arm","yaw_arm","total_accel_arm","gyros_arm_x","gyros_arm_y","gyros_arm_z","accel_arm_x","accel_arm_y","accel_arm_z","magnet_arm_x","magnet_arm_y","magnet_arm_z","roll_dumbbell","pitch_dumbbell","yaw_dumbbell","total_accel_dumbbell","gyros_dumbbell_x","gyros_dumbbell_y","gyros_dumbbell_z","accel_dumbbell_x","accel_dumbbell_y","accel_dumbbell_z","magnet_dumbbell_x","magnet_dumbbell_y","magnet_dumbbell_z","roll_forearm","pitch_forearm","yaw_forearm","total_accel_forearm","gyros_forearm_x","gyros_forearm_y","gyros_forearm_z","accel_forearm_x","accel_forearm_y","accel_forearm_z","magnet_forearm_x","magnet_forearm_y","magnet_forearm_z")]
+```
+
+## Check for variables with near zero variance
+
+The function nearZeroVar was run on cleanedData1. Variables with little or no variability can be excluded from the model. However in this case there were no variables with near zero variance so we retained all variables.
+
+```{r warning=FALSE, message=FALSE}
+library(caret)
+nsv <- nearZeroVar(cleanedData1, saveMetrics=TRUE)
+nsv
+```
+
+## Checking for correlations 
+
+We checked for correlations and found that there were some strong correlations in the variables relating to sensor on the belt.
+
+The variables accel_belt_x, accel_belt_y, accel_belt_z appeared to be correlated with several of the other variables so we excluded these from our model.
+
+A new dataset was created named cleanedData2 was created.
+
+```{r}
+M <- abs(cor(cleanedData1[,-1]))
+diag(M) <- 0
+which(M>0.9,arr.ind=T)
+```
+
+
+```{r cache=TRUE, echo=FALSE}
+cleanedData2 <- importRawData[,c("classe","roll_belt","pitch_belt","yaw_belt","total_accel_belt","gyros_belt_x","gyros_belt_y","gyros_belt_z","magnet_belt_x","magnet_belt_y","magnet_belt_z","roll_arm","pitch_arm","yaw_arm","total_accel_arm","gyros_arm_x","gyros_arm_y","gyros_arm_z","accel_arm_x","accel_arm_y","accel_arm_z","magnet_arm_x","magnet_arm_y","magnet_arm_z","roll_dumbbell","pitch_dumbbell","yaw_dumbbell","total_accel_dumbbell","gyros_dumbbell_x","gyros_dumbbell_y","gyros_dumbbell_z","accel_dumbbell_x","accel_dumbbell_y","accel_dumbbell_z","magnet_dumbbell_x","magnet_dumbbell_y","magnet_dumbbell_z","roll_forearm","pitch_forearm","yaw_forearm","total_accel_forearm","gyros_forearm_x","gyros_forearm_y","gyros_forearm_z","accel_forearm_x","accel_forearm_y","accel_forearm_z","magnet_forearm_x","magnet_forearm_y","magnet_forearm_z")]
+```
+
+## Cross validation of the dataset
+
+In order to estimate the out of sample error we divided cleanedData2 into training and validation data sets. We kept 75% for the new training data and 25% for the validation data.
+
+We repeated the split two more times creating three pairs of training and validation data sets. We then built our model on the training data and applied the prediction model to the validation data set. The R code for the second and third splits is included in the appendix.
+
+```{r cache=TRUE, echo=TRUE}
+set.seed(62433)
+inTrain <- createDataPartition(cleanedData2$classe, p = 0.75, list=FALSE)
+trainingX <- cleanedData2[ inTrain,]
+validationX <- cleanedData2[-inTrain,]
+```
+
+## Building a model
+
+We used a random forest to build our prediction model as this is known to be accurate for classification problems.
+
+```{r cache=TRUE}
+modelRFX <- train(classe~.,data=trainingX,method="rf")
+```
+
+```{r eval=TRUE, echo=FALSE}
+print(modelRFX)
+```
+
+The selected model was the one with the highest accuracy. This was the model with reported accuracy of 0.9896442 and mtry=25.
+
+For an estimate of the out of sample error we applied our prediction model to the validation data set. We then repeated the process on the other two sets of training and validation data and took the average of the three estimates for a better estimate overall.
+
+```{r cache=TRUE, echo=TRUE}
+predX <- predict(modelRFX,validationX)
+confusionMatrix(validationX$classe,predict(modelRFX,validationX))
+```
+
+The results from the validationX dataset indicated that the accuracy of the model is 99.35% and therefore that we would expect the out of sample error to be 0.66%. The results from the second and third validation datasets gave further estimates of the out of sample error of 0.45% and 0.63%.
+
+Taking the average of these three gave us a final estimate of the out of sample error of 0.58%.
+
+Finally we applied our prediction model to the test data set and it successfully predicted the classe of the 20 test cases.
+
+```{r cache=TRUE, echo=TRUE}
+predTest <- predict(modelRFX,importRawTest)
+predTest
+```
+
+## Appendix
+
+Cleaned data sets.
+
+```{r eval=FALSE}
+cleanedData1 <- importRawData[,c("classe","roll_belt","pitch_belt","yaw_belt","total_accel_belt","gyros_belt_x","gyros_belt_y","gyros_belt_z","accel_belt_x","accel_belt_y","accel_belt_z","magnet_belt_x","magnet_belt_y","magnet_belt_z","roll_arm","pitch_arm","yaw_arm","total_accel_arm","gyros_arm_x","gyros_arm_y","gyros_arm_z","accel_arm_x","accel_arm_y","accel_arm_z","magnet_arm_x","magnet_arm_y","magnet_arm_z","roll_dumbbell","pitch_dumbbell","yaw_dumbbell","total_accel_dumbbell","gyros_dumbbell_x","gyros_dumbbell_y","gyros_dumbbell_z","accel_dumbbell_x","accel_dumbbell_y","accel_dumbbell_z","magnet_dumbbell_x","magnet_dumbbell_y","magnet_dumbbell_z","roll_forearm","pitch_forearm","yaw_forearm","total_accel_forearm","gyros_forearm_x","gyros_forearm_y","gyros_forearm_z","accel_forearm_x","accel_forearm_y","accel_forearm_z","magnet_forearm_x","magnet_forearm_y","magnet_forearm_z")]
+```
+
+
+```{r cache=TRUE, echo=TRUE, eval=FALSE}
+cleanedData2 <- importRawData[,c("classe","roll_belt","pitch_belt","yaw_belt","total_accel_belt","gyros_belt_x","gyros_belt_y","gyros_belt_z","magnet_belt_x","magnet_belt_y","magnet_belt_z","roll_arm","pitch_arm","yaw_arm","total_accel_arm","gyros_arm_x","gyros_arm_y","gyros_arm_z","accel_arm_x","accel_arm_y","accel_arm_z","magnet_arm_x","magnet_arm_y","magnet_arm_z","roll_dumbbell","pitch_dumbbell","yaw_dumbbell","total_accel_dumbbell","gyros_dumbbell_x","gyros_dumbbell_y","gyros_dumbbell_z","accel_dumbbell_x","accel_dumbbell_y","accel_dumbbell_z","magnet_dumbbell_x","magnet_dumbbell_y","magnet_dumbbell_z","roll_forearm","pitch_forearm","yaw_forearm","total_accel_forearm","gyros_forearm_x","gyros_forearm_y","gyros_forearm_z","accel_forearm_x","accel_forearm_y","accel_forearm_z","magnet_forearm_x","magnet_forearm_y","magnet_forearm_z")]
+```
+
+Code for 2nd and 3rd cross validation models.
+
+```{r cache=TRUE, eval=FALSE}
+
+set.seed(78462)
+inTrain <- createDataPartition(cleanedData2$classe, p = 0.75, list=FALSE)
+trainingY <- cleanedData2[ inTrain,]
+validationY <- cleanedData2[-inTrain,]
+
+modelRFY <- train(classe~.,data=trainingY,method="rf")
+
+predY <- predict(modelRFY,validationY)
+
+confusionMatrix(validationY$classe,predict(modelRFY,validationY))
+
+set.seed(21486)
+inTrain <- createDataPartition(cleanedData2$classe, p = 0.75, list=FALSE)
+trainingZ <- cleanedData2[ inTrain,]
+validationZ <- cleanedData2[-inTrain,]
+
+modelRFZ <- train(classe~.,data=trainingZ,method="rf")
+
+predZ <- predict(modelRFZ,validationZ)
+
+confusionMatrix(validationZ$classe,predict(modelRFZ,validationZ))
+```
